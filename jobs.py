@@ -13,6 +13,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import login
+import winutil
 import ytdlp_core as core
 
 STAGING_NAME = ".yt-dlp-studio-tmp"
@@ -57,7 +59,7 @@ class Job:
         self.id = next(self._ids)
         self.url = url
         self.opts = dict(opts)
-        self.status = status          # ready | queued | running | done | error | cancelled
+        self.status = status          # ready | queued | running | paused | done | error | cancelled
         self.title = None
         self.uploader = None
         self.duration = None
@@ -65,7 +67,10 @@ class Job:
         self.is_playlist = False
         self.entries = None
         self.formats: list[dict] = []
+        self.qualities = core.quality_options([])
+        self.meta: dict = {}
         self.info_state = "pending"   # pending | loading | ok | failed
+        self.info_error = None
         self.percent = 0.0
         self.speed = None
         self.eta = None
@@ -77,6 +82,7 @@ class Job:
         self.log = collections.deque(maxlen=400)
         self.proc: subprocess.Popen | None = None
         self.cancel_requested = False
+        self.pause_requested = False
         self.parts = 1
         self.part_idx = -1
         self.part_sizes: dict[int, float] = {}
@@ -86,7 +92,7 @@ class Job:
         return Path(self.opts.get("folder") or core.DEFAULT_FOLDER) / STAGING_NAME / f"job-{self.id}"
 
     def to_dict(self) -> dict:
-        preset = core.PRESET_MAP.get(self.opts.get("preset"), {})
+        _, kind = core.format_args(self.opts)
         return {
             "id": self.id, "url": self.url, "status": self.status,
             "title": self.title, "uploader": self.uploader, "duration": self.duration,
@@ -94,9 +100,11 @@ class Job:
             "has_formats": bool(self.formats), "info_state": self.info_state,
             "percent": round(self.percent, 1), "speed": self.speed, "eta": self.eta,
             "total": self.total, "stage": self.stage, "item": self.item, "error": self.error,
-            "files": self.files, "preset_label": preset.get("label", "?"),
-            "preset_kind": preset.get("kind", ""), "format_override": self.opts.get("format_override", ""),
-            "folder": self.opts.get("folder"),
+            "files": self.files, "label": core.describe(self.opts), "kind": kind,
+            "track": self.opts.get("track", "both"), "quality": self.opts.get("quality", "best"),
+            "format_override": self.opts.get("format_override", ""), "qualities": self.qualities,
+            "info_error": self.info_error, "folder": self.opts.get("folder"),
+            "parts": self.parts, "part_idx": self.part_idx,
         }
 
 
@@ -136,27 +144,36 @@ class JobManager:
     def start(self, job_id: int | None = None):
         with self.lock:
             if job_id is None:
-                targets = list(self.jobs.values())
+                targets = [j for j in self.jobs.values() if j.status in ("ready", "paused")]
             else:
                 targets = [self.jobs[job_id]] if job_id in self.jobs else []
+            current = self.settings().get("options", {})
             for j in targets:
-                if j.status in ("ready", "error", "cancelled"):
+                if j.status in ("ready", "paused", "error", "cancelled"):
+                    # Locations/Settings changed since the link was added apply now; the
+                    # per-item choices (track, quality, exact streams) are kept.
+                    keep = {k: j.opts[k] for k in self.EDITABLE if k in j.opts}
+                    if j.status == "paused":
+                        keep["folder"] = j.opts.get("folder")   # resume where the partial file is
+                    j.opts = {**current, **keep}
                     self._reset(j)
                     j.status = "queued"
                     self._emit(j)
         self.wake.set()
 
-    def cancel(self, job_id: int):
+    def cancel(self, job_id: int, pause: bool = False):
+        """Stop a download. pause=True keeps the partial file so starting it again resumes."""
         with self.lock:
             j = self.jobs.get(job_id)
             if not j:
                 return
             if j.status == "running" and j.proc:
                 j.cancel_requested = True
+                j.pause_requested = pause
                 subprocess.run(["taskkill", "/PID", str(j.proc.pid), "/T", "/F"],
                                capture_output=True, creationflags=core.NO_WINDOW)
             elif j.status == "queued":
-                j.status = "ready"
+                j.status = "paused" if pause and j.percent else "ready"
                 self._emit(j)
 
     def remove(self, job_id: int):
@@ -175,18 +192,43 @@ class JobManager:
         self._clean_staging(j)
         self.hub.broadcast("removed", {"id": job_id})
 
-    def clear_finished(self):
+    CLEAR_GROUPS = {
+        "all": None,
+        "done": ("done",),
+        "error": ("error", "cancelled"),
+        "pending": ("ready", "queued", "paused"),
+    }
+
+    def clear(self, which: str = "all"):
+        statuses = self.CLEAR_GROUPS.get(which, ())
         with self.lock:
-            gone = [j for j in self.jobs.values() if j.status in ("done", "cancelled", "error")]
+            gone = [j for j in self.jobs.values() if statuses is None or j.status in statuses]
         for j in gone:
             self.remove(j.id)
 
-    def set_format(self, job_id: int, fmt: str):
+    def cancel_all(self, pause: bool = False):
+        with self.lock:
+            ids = [j.id for j in self.jobs.values() if j.status in ("running", "queued")]
+        for i in ids:
+            self.cancel(i, pause=pause)
+
+    EDITABLE = {"track", "quality", "format_override"}
+
+    def set_options(self, job_id: int, patch: dict):
         with self.lock:
             j = self.jobs.get(job_id)
-            if j and j.status != "running":
-                j.opts["format_override"] = fmt
+            if j and j.status not in ("running", "queued"):
+                if ("track" in patch or "quality" in patch) and "format_override" not in patch:
+                    patch = {**patch, "format_override": ""}   # a new quality replaces exact streams
+                j.opts.update({k: v for k, v in patch.items() if k in self.EDITABLE})
                 self._emit(j)
+
+    def apply_all(self, patch: dict):
+        """The footer quality picker: applies to every item that hasn't started yet."""
+        with self.lock:
+            targets = [j for j in self.jobs.values() if j.status in ("ready", "paused", "error", "cancelled")]
+        for j in targets:
+            self.set_options(j.id, {**patch, "format_override": ""})
 
     def get(self, job_id: int) -> Job | None:
         return self.jobs.get(job_id)
@@ -218,7 +260,7 @@ class JobManager:
 
     def _reset(self, j: Job):
         j.percent, j.speed, j.eta, j.total, j.stage = 0.0, None, None, None, ""
-        j.error, j.item, j.files, j.cancel_requested = None, None, [], False
+        j.error, j.item, j.files, j.cancel_requested, j.pause_requested = None, None, [], False, False
         j.parts, j.part_idx, j.part_sizes = 1, -1, {}
 
     def _fetch_info_async(self, job: Job):
@@ -229,19 +271,34 @@ class JobManager:
         self._emit(job)
 
         def work():
+            src = core.cookie_source(job.opts)
+            cookies = login.cookie_copy(f"info-{job.id}", src) if src else None
             try:
-                info = core.fetch_info(exe, job.url, job.opts, self.settings())
-                for k in ("title", "uploader", "duration", "thumbnail", "is_playlist", "entries", "formats"):
+                info = core.fetch_info(exe, job.url, job.opts, self.settings(), cookie_file=cookies,
+                                       secrets=self.secrets())
+                for k in ("title", "uploader", "duration", "thumbnail", "is_playlist", "entries", "formats", "meta"):
                     if k == "title" and job.title:   # a running download may already know it
                         continue
                     setattr(job, k, info[k])
-                job.info_state = "ok"
+                job.qualities = core.quality_options(job.formats)
+                job.info_state, job.info_error = "ok", None
             except Exception as e:  # noqa: BLE001 - surface anything to the UI
-                job.info_state = "failed"
+                job.info_state, job.info_error = "failed", str(e)
                 job.log.append(f"[studio] Info lookup failed: {e}")
+            finally:
+                if cookies:
+                    Path(cookies).unlink(missing_ok=True)
             self._emit(job)
 
         self.info_pool.submit(work)
+
+    def secrets(self) -> dict:
+        """Decrypt stored credentials just for one yt-dlp run."""
+        s = self.settings().get("secrets", {})
+        out = {"username": s.get("username", "")}
+        for k in ("password", "video_password"):
+            out[k] = winutil.unprotect(s[k]) if s.get(k) else ""
+        return out
 
     def _scheduler(self):
         while True:
@@ -268,12 +325,12 @@ class JobManager:
             self._emit(job)
             return
 
-        keep_both = job.opts.get("on_exists", "keep_both") == "keep_both"
         if not (job.opts.get("folder") or "").strip():
-            job.status, job.error = "error", "No download folder chosen"
+            job.status, job.error = "error", "No download folder chosen (open Locations in the bottom bar)"
             self._emit(job)
             return
-        dest = Path(job.opts["folder"])
+        keep_both = job.opts.get("on_exists", "keep_both") == "keep_both"
+        dest = Path(job.opts.get("folder") or core.DEFAULT_FOLDER)
         staging = job.staging if keep_both else None
         try:
             dest.mkdir(parents=True, exist_ok=True)
@@ -288,10 +345,17 @@ class JobManager:
         core.DATA_DIR.mkdir(parents=True, exist_ok=True)
         print_file = core.DATA_DIR / f"files-{job.id}.txt"
         print_file.unlink(missing_ok=True)
+        cookies = None
+        if job.opts.get("cookies") in ("studio", "file"):
+            src = core.cookie_source(job.opts)
+            cookies = login.cookie_copy(f"job-{job.id}", src) if src else None
+            if not cookies:
+                job.log.append("[studio] A login is selected but no cookies are saved yet (Authentication page).")
         args = [exe] + core.build_args(job.opts, [job.url], settings, internal=True,
                                        print_file=str(print_file),
                                        staging=str(staging) if staging else None,
-                                       is_playlist=job.is_playlist if job.info_state == "ok" else None)
+                                       is_playlist=job.is_playlist if job.info_state == "ok" else None,
+                                       cookie_file=cookies, secrets=self.secrets())
         job.log.append("[studio] " + subprocess.list2cmdline(args))
         try:
             job.proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -309,6 +373,8 @@ class JobManager:
                     self._parse_line(job, line)
         rc = job.proc.wait()
         job.proc = None
+        if cookies:
+            Path(cookies).unlink(missing_ok=True)
 
         main_files = []
         if print_file.exists():
@@ -316,8 +382,12 @@ class JobManager:
             print_file.unlink(missing_ok=True)
 
         if job.cancel_requested:
-            # Staging is kept so a retry resumes the partial download.
-            job.status, job.stage = "cancelled", "Cancelled"
+            # Staging is kept so resuming/retrying continues the partial download.
+            if job.pause_requested:
+                job.status, job.stage = "paused", "Paused"
+            else:
+                job.status, job.stage = "cancelled", "Cancelled"
+            job.speed = job.eta = None
         elif rc == 0 or main_files:
             if staging:
                 try:

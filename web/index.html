@@ -6,222 +6,77 @@
 <meta name="studio-token" content="{{TOKEN}}">
 <meta name="studio-instance" content="{{INSTANCE}}">
 <title>yt-dlp Studio</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff5c5c'/%3E%3Cpath d='M16 8v11m0 0l-5-5m5 5l5-5M9 24h14' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2332b45c'/%3E%3Cpath d='M16 8v11m0 0l-5-5m5 5l5-5M9 24h14' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg></span>
-    <span>yt-dlp <b>Studio</b></span>
-  </div>
-  <div class="tools" id="tools"></div>
-  <button class="icon-btn" id="settingsBtn" title="Settings" aria-label="Settings"></button>
+
+<header class="hdr">
+  <form id="addForm" class="join add-form" autocomplete="off">
+    <input id="urlInput" class="input join-item grow" type="text" inputmode="url" spellcheck="false"
+           placeholder="Enter a video/playlist link to add to the queue" aria-label="Video or playlist link">
+    <button class="btn primary join-item" id="addBtn" type="submit">Add</button>
+    <div class="dropdown">
+      <button class="btn primary join-item caret" id="addMore" type="button" aria-label="More add actions" data-icon="chevron-down"></button>
+      <ul class="menu" id="addMenu" hidden>
+        <li><button type="button" id="mWatch" data-icon="clipboard"><span>Watch clipboard</span></button></li>
+        <li><button type="button" id="mPaste" data-icon="clipboard-paste"><span>Paste links from clipboard</span></button></li>
+        <li><button type="button" id="mImport" data-icon="file-up"><span>Import links</span></button></li>
+      </ul>
+    </div>
+  </form>
+  <a class="btn subtle square" href="#/settings/downloads" title="App Settings" aria-label="App Settings" data-icon="cog"></a>
 </header>
 
 <div id="banner" class="banner" hidden></div>
 
-<main class="layout">
-  <section class="panel compose">
-    <div class="section-head">
-      <h2><span class="step">1</span>Links</h2>
-      <div class="row gap-s">
-        <label class="switch" title="Copy a link anywhere and it appears here automatically">
-          <input type="checkbox" id="watchClip"><span class="track"></span><span>Watch clipboard</span>
-        </label>
-        <button class="btn ghost sm" id="pasteBtn" data-icon="clipboard">Paste</button>
-        <button class="btn ghost sm" id="clearBtn" data-icon="x">Clear</button>
-      </div>
+<main id="main">
+  <section id="home" class="home">
+    <div id="empty" class="empty-state">
+      <svg viewBox="0 0 24 24" class="big-arrow" aria-hidden="true"><path d="M12 20V4m0 0-6 6m6-6 6 6"/></svg>
+      <p class="t1">Your queue is empty</p>
+      <p class="t2">Add some videos to get started.</p>
     </div>
-    <div class="dropzone" id="dropzone">
-      <textarea id="links" spellcheck="false"
-        placeholder="Paste links here: one per line, or any text that contains links.&#10;You can also drag links in from your browser.&#10;&#10;Ctrl+Enter to download."></textarea>
-      <div class="link-count" id="linkCount"></div>
-    </div>
-
-    <div class="section-head">
-      <h2><span class="step">2</span>What to get</h2>
-    </div>
-    <div id="presets" class="presets"></div>
-
-    <div class="section-head">
-      <h2><span class="step">3</span>Where &amp; how</h2>
-    </div>
-
-    <div class="field">
-      <label for="folder">Save to</label>
-      <div class="folder-row">
-        <div class="combo">
-          <input id="folder" class="input mono" spellcheck="false" autocomplete="off" placeholder="Choose a folder: click Browse…">
-          <button class="combo-btn" id="recentBtn" title="Recent folders" aria-label="Recent folders"></button>
-          <div class="menu" id="recentMenu" hidden></div>
-        </div>
-        <button class="btn" id="browseBtn" data-icon="folder">Browse…</button>
-        <button class="btn ghost" id="openFolderBtn" title="Open this folder in Explorer" data-icon="external"></button>
-      </div>
-    </div>
-
-    <div class="grid-2">
-      <div class="field">
-        <label for="template">File name</label>
-        <select id="template" class="input">
-          <option value="title">Title</option>
-          <option value="title_id">Title [video ID]</option>
-          <option value="uploader_title">Channel - Title</option>
-          <option value="date_title">Upload date - Title</option>
-          <option value="custom">Custom template…</option>
-        </select>
-        <input id="templateCustom" class="input mono" spellcheck="false" hidden
-               placeholder="%(title)s.%(ext)s">
-      </div>
-      <div class="field">
-        <label>If the file name already exists</label>
-        <div class="seg" id="onExists">
-          <button data-v="keep_both" title="Save as “Title (2).mp4”, never touches the old file">Keep both</button>
-          <button data-v="skip" title="Don’t download it again">Skip</button>
-          <button data-v="overwrite" title="Replace the existing file">Overwrite</button>
-        </div>
-        <div class="hint" id="onExistsHint"></div>
-      </div>
-    </div>
-
-    <div class="field">
-      <label>Playlist links</label>
-      <div class="row gap-s wrap">
-        <div class="seg" id="playlistMode">
-          <button data-v="single">Just the video</button>
-          <button data-v="all">Whole playlist</button>
-        </div>
-        <div class="row gap-s wrap" id="playlistExtra">
-          <input id="playlistItems" class="input sm mono" placeholder="Items e.g. 1-10" title="Which items to download, e.g. 1-10 or 1,4,7 or -5 (last five)">
-          <label class="check"><input type="checkbox" id="playlistFolder"> Own folder</label>
-        </div>
-      </div>
-    </div>
-
-    <details class="advanced" id="advanced">
-      <summary>More options</summary>
-      <div class="chips" id="toggles"></div>
-      <div class="grid-2">
-        <div class="field">
-          <label for="cookies">Use cookies from</label>
-          <select id="cookies" class="input"></select>
-          <div class="hint">For age-restricted, private or members-only videos. Close Chrome first if you pick it.</div>
-        </div>
-        <div class="field">
-          <label for="rateLimit">Speed limit</label>
-          <input id="rateLimit" class="input mono" placeholder="No limit (e.g. 5M = 5 MB/s)">
-        </div>
-      </div>
-      <div class="field">
-        <label for="extra">Extra yt-dlp arguments</label>
-        <input id="extra" class="input mono" spellcheck="false" placeholder="e.g. --write-description --limit-rate 2M">
-      </div>
-    </details>
-
-    <div class="cmd">
-      <div class="cmd-label">Command</div>
-      <code id="cmdPreview"></code>
-      <button class="icon-btn sm" id="copyCmd" title="Copy command" aria-label="Copy command"></button>
-    </div>
-
-    <div class="actions">
-      <button class="btn ghost" id="savePresetBtn" data-icon="star">Save as preset</button>
-      <span class="grow"></span>
-      <button class="btn" id="addBtn" data-icon="plus">Add to queue</button>
-      <button class="btn primary" id="downloadBtn" data-icon="download">Download</button>
-    </div>
+    <div id="cards" class="cards"></div>
   </section>
-
-  <section class="panel queue">
-    <div class="section-head">
-      <h2>Queue <span class="count" id="queueCount"></span></h2>
-      <div class="row gap-s">
-        <button class="btn ghost sm" id="startAllBtn" data-icon="play">Start all</button>
-        <button class="btn ghost sm" id="clearDoneBtn" data-icon="check">Clear finished</button>
-      </div>
-    </div>
-    <div class="jobs" id="jobs"></div>
-    <div class="empty" id="emptyQueue">
-      <div class="empty-icon"></div>
-      <p>Nothing here yet.</p>
-      <p class="muted">Paste a link on the left and press <kbd>Download</kbd>.</p>
-    </div>
-  </section>
+  <section id="page" class="page" hidden></section>
+  <div id="dropOverlay" class="drop-overlay" hidden>
+    <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>Drop links to add them to the queue</div>
+  </div>
 </main>
 
-<dialog id="formatsDlg" class="dlg wide">
-  <form method="dialog" class="dlg-inner">
-    <header><h3>Pick formats</h3><button class="icon-btn" value="cancel" aria-label="Close" data-icon="x"></button></header>
-    <p class="muted" id="formatsTitle"></p>
-    <div class="fmt-cols">
-      <div><h4>Video</h4><div class="fmt-table" id="fmtVideo"></div></div>
-      <div><h4>Audio</h4><div class="fmt-table" id="fmtAudio"></div></div>
+<footer class="ftr">
+  <div class="progress big" id="totalProgress"><div class="fill"></div><span class="label"></span></div>
+  <div class="ftr-row">
+    <div class="join">
+      <a class="btn join-item square" id="locBtn" href="#/location" title="Locations" aria-label="Locations" data-icon="folder"></a>
+      <a class="btn join-item square" id="authBtn" href="#/auth" title="Log in" aria-label="Log in" data-icon="key"></a>
+      <a class="btn join-item square" id="subsBtn" href="#/subtitles" title="Subtitles" aria-label="Subtitles" data-icon="captions"></a>
     </div>
-    <footer>
-      <code id="fmtChoice" class="muted"></code>
-      <span class="grow"></span>
-      <button class="btn ghost" value="reset" id="fmtReset">Use preset</button>
-      <button class="btn primary" value="ok" id="fmtOk">Use these</button>
-    </footer>
-  </form>
-</dialog>
-
-<dialog id="logDlg" class="dlg wide">
-  <form method="dialog" class="dlg-inner">
-    <header><h3>Details</h3><button class="icon-btn" value="cancel" aria-label="Close" data-icon="x"></button></header>
-    <p class="muted" id="logTitle"></p>
-    <code class="cmd-block" id="logCmd"></code>
-    <pre class="log" id="logBody"></pre>
-    <footer><span class="grow"></span><button class="btn ghost" type="button" id="logCopy" data-icon="copy">Copy log</button><button class="btn" value="ok">Close</button></footer>
-  </form>
-</dialog>
-
-<dialog id="settingsDlg" class="dlg">
-  <form method="dialog" class="dlg-inner">
-    <header><h3>Settings</h3><button class="icon-btn" value="cancel" aria-label="Close" data-icon="x"></button></header>
-    <div class="field">
-      <label>yt-dlp program</label>
-      <div class="folder-row">
-        <input id="setExe" class="input mono" readonly>
-        <button class="btn" type="button" id="setExeBrowse">Locate…</button>
-      </div>
-      <div class="row gap-s" style="margin-top:8px">
-        <button class="btn ghost sm" type="button" id="setUpdate" data-icon="refresh">Update yt-dlp</button>
-        <button class="btn ghost sm" type="button" id="setInstall" data-icon="download">Download fresh copy</button>
-        <button class="btn ghost sm" type="button" id="setExeAuto">Auto-detect</button>
-      </div>
+    <div class="vdiv"></div>
+    <div class="join global-format">
+      <select id="gTrack" class="select join-item" aria-label="Select track for all videos"></select>
+      <select id="gQuality" class="select join-item" aria-label="Select format for all videos"></select>
     </div>
-    <div class="grid-2">
-      <div class="field">
-        <label for="setConcurrent">Downloads at once</label>
-        <select id="setConcurrent" class="input"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
-      </div>
-      <div class="field">
-        <label for="setJs">JavaScript runtime</label>
-        <select id="setJs" class="input">
-          <option value="auto">Auto-detect</option><option value="deno">Deno</option>
-          <option value="node">Node.js</option><option value="bun">Bun</option><option value="none">None</option>
-        </select>
-        <div class="hint">YouTube needs one for full quality.</div>
-      </div>
+    <div class="vdiv"></div>
+    <div class="join dropdown">
+      <button class="btn subtle join-item square" id="trashBtn" type="button" title="Empty queue" aria-label="Empty queue" data-icon="trash"></button>
+      <button class="btn subtle join-item caret" id="trashMore" type="button" aria-label="More queue actions" data-icon="chevron-up"></button>
+      <ul class="menu up" id="trashMenu" hidden>
+        <li><button type="button" data-clear="done" data-icon="broom"><span>Clear successful</span></button></li>
+        <li><button type="button" data-clear="error" data-icon="broom"><span>Clear errored</span></button></li>
+        <li><button type="button" data-clear="pending" data-icon="broom"><span>Clear pending</span></button></li>
+        <li><button type="button" data-queue="cancel" data-icon="x"><span>Cancel downloading</span></button></li>
+        <li><button type="button" data-queue="pause" data-icon="pause"><span>Pause all</span></button></li>
+        <li><button type="button" data-queue="resume" data-icon="play"><span>Resume all</span></button></li>
+      </ul>
     </div>
-    <label class="check"><input type="checkbox" id="setFetch"> Look up titles &amp; thumbnails when links are added</label>
-    <p class="hint">yt-dlp Studio is an AI-generated app (written with Claude). It is not affiliated with the yt-dlp project.</p>
-    <footer><span class="grow"></span><button class="btn primary" value="ok">Done</button></footer>
-  </form>
-</dialog>
+    <button class="btn primary" id="downloadAll" type="button">Download</button>
+  </div>
+</footer>
 
-<dialog id="presetDlg" class="dlg narrow">
-  <form method="dialog" class="dlg-inner">
-    <header><h3>Save as preset</h3></header>
-    <p class="muted">Saves the current choice, folder and options as a one-click preset.</p>
-    <input id="presetName" class="input" placeholder="Preset name, e.g. Music to my Music folder" maxlength="40">
-    <footer><span class="grow"></span><button class="btn ghost" value="cancel">Cancel</button><button class="btn primary" value="ok">Save</button></footer>
-  </form>
-</dialog>
-
-<div class="offline" id="offline" hidden><div><div class="spinner"></div>Reconnecting to yt-dlp Studio…</div></div>
+<input type="file" id="importFile" accept=".txt,.csv,text/plain,text/csv" hidden>
+<div class="offline" id="offline" hidden><div><span class="spinner"></span>Reconnecting to yt-dlp Studio…</div></div>
 <div class="toasts" id="toasts"></div>
 <script src="app.js"></script>
 </body>

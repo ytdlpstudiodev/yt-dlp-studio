@@ -1,7 +1,7 @@
 """yt-dlp Studio: a friendly front end for yt-dlp.
 
 Run `python app.py` (or double-click "yt-dlp Studio.bat"). It starts a local server on
-127.0.0.1 (port 47815; change with --port N) and opens the UI in a chromeless Edge window. Closing the window shuts the
+127.0.0.1 and opens the UI in a chromeless Edge window. Closing the window shuts the
 server down once no downloads are running.
 """
 from __future__ import annotations
@@ -25,13 +25,14 @@ from urllib.parse import parse_qs, urlparse
 import ytdlp_core as core
 import winutil
 from jobs import JobManager
+from login import LoginManager
 
 def _port_from_args(default: int = 47815) -> int:
     if "--port" in sys.argv:
         i = sys.argv.index("--port")
         if i + 1 < len(sys.argv) and sys.argv[i + 1].isdigit():
             return int(sys.argv[i + 1])
-    return int(os.environ.get("STUDIO_PORT", default))
+    return default
 
 
 PORT = _port_from_args()
@@ -57,9 +58,12 @@ DEFAULT_SETTINGS = {
     "js_runtime": "auto",
     "fetch_info": True,
     "clipboard_watch": False,
-    "auto_start": True,
-    "user_presets": [],
+    "auto_start": False,
+    "theme": "system",
+    "notifications": True,
+    "secrets": {},
     "recent_folders": [],
+    "ui_version": 2,
 }
 _settings_lock = threading.Lock()
 
@@ -70,6 +74,10 @@ def load_settings() -> dict:
         try:
             saved = json.loads(SETTINGS_FILE.read_text("utf-8"))
             opts = {**s["options"], **saved.get("options", {})}
+            if saved.get("ui_version") != 2:
+                # Came from the preset-based layout: queue first, download when you press Download.
+                saved["auto_start"] = False
+                saved["ui_version"] = 2
             s.update(saved)
             s["options"] = opts
         except (OSError, ValueError) as e:
@@ -85,6 +93,11 @@ def save_settings():
         tmp = SETTINGS_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(SETTINGS, indent=2), "utf-8")
         os.replace(tmp, SETTINGS_FILE)
+
+
+def have_folder() -> str:
+    folder = (SETTINGS["options"].get("folder") or "").strip()
+    return folder if folder and os.path.isabs(folder) else ""
 
 
 def remember_folder(folder: str):
@@ -132,6 +145,7 @@ class Hub:
 
 HUB = Hub()
 JOBS = JobManager(HUB, lambda: SETTINGS)
+LOGIN = LoginManager(lambda st: HUB.broadcast("login", st))
 
 _tool_cache: dict = {}
 
@@ -148,11 +162,22 @@ def tool_status(refresh: bool = False) -> dict:
     }
 
 
+def public_settings() -> dict:
+    """Settings for the page: secrets are replaced by yes/no flags and never leave the server."""
+    out = {k: v for k, v in SETTINGS.items() if k != "secrets"}
+    sec = SETTINGS.get("secrets", {})
+    out["secrets"] = {"username": sec.get("username", ""), "has_password": bool(sec.get("password")),
+                      "has_video_password": bool(sec.get("video_password"))}
+    return out
+
+
 def full_state() -> dict:
     return {
-        "settings": SETTINGS, "presets": core.PRESETS, "tools": tool_status(),
+        "settings": public_settings(), "tools": tool_status(),
         "jobs": JOBS.snapshot(), "cookie_browsers": core.COOKIE_BROWSERS,
-        "default_folder": core.DEFAULT_FOLDER, "instance": INSTANCE,
+        "video_containers": core.VIDEO_CONTAINERS, "audio_formats": core.AUDIO_FORMATS,
+        "generic_qualities": core.quality_options([]),
+        "default_folder": core.DEFAULT_FOLDER, "instance": INSTANCE, "login": LOGIN.state(),
     }
 
 
@@ -172,8 +197,11 @@ def clipboard_watcher():
             continue
         last_seq = seq
         urls = core.extract_urls(winutil.get_clipboard_text() or "")
-        if urls:
-            HUB.broadcast("clip", {"urls": urls})
+        if urls and core.find_ytdlp(SETTINGS):
+            added, _ = JOBS.add(urls, dict(SETTINGS["options"]), start=bool(SETTINGS.get("auto_start")))
+            if added:
+                n = len(added)
+                HUB.broadcast("toast", {"kind": "ok", "text": f"{n} link{'s' if n > 1 else ''} added from the clipboard."})
 
 
 def idle_watchdog(server):
@@ -293,13 +321,14 @@ class Handler(BaseHTTPRequestHandler):
             save_settings()
             return {"ok": True}
         if path == "/api/settings":
-            allowed = {"ytdlp_path", "max_concurrent", "js_runtime", "fetch_info", "clipboard_watch", "auto_start"}
+            allowed = {"ytdlp_path", "max_concurrent", "js_runtime", "fetch_info", "clipboard_watch", "auto_start",
+                       "theme", "notifications"}
             for k, v in b.items():
                 if k in allowed:
                     SETTINGS[k] = v
             save_settings()
             JOBS.wake.set()
-            return {"settings": SETTINGS, "tools": tool_status(refresh="ytdlp_path" in b)}
+            return {"settings": public_settings(), "tools": tool_status(refresh="ytdlp_path" in b)}
         if path == "/api/add":
             urls = core.extract_urls(b.get("text", ""))
             if not urls:
@@ -307,48 +336,72 @@ class Handler(BaseHTTPRequestHandler):
             if not core.find_ytdlp(SETTINGS):
                 return {"added": 0, "dupes": 0, "error": "yt-dlp isn't installed yet."}
             opts = {**SETTINGS["options"], **b.get("options", {})}
-            folder = (opts.get("folder") or "").strip()
-            if not folder or not os.path.isabs(folder):
-                return {"added": 0, "dupes": 0, "need_folder": True,
-                        "error": "Choose where to save downloads first (click Browse…)."}
             opts.pop("format_override", None)
             SETTINGS["options"] = dict(opts)
             remember_folder(opts.get("folder", ""))
             save_settings()
-            added, dupes = JOBS.add(urls, opts, start=bool(b.get("start", True)))
+            start = bool(b.get("start", SETTINGS.get("auto_start"))) and bool(have_folder())
+            added, dupes = JOBS.add(urls, opts, start=start)
             return {"added": len(added), "dupes": dupes, "recent_folders": SETTINGS["recent_folders"]}
         if path == "/api/start":
+            if not have_folder():
+                return {"need_folder": True, "error": "Choose where to save downloads first (Locations)."}
             JOBS.start(b.get("id"))
             return {"ok": True}
         if path == "/api/cancel":
             JOBS.cancel(int(b["id"]))
             return {"ok": True}
+        if path == "/api/pause":
+            JOBS.cancel(int(b["id"]), pause=True)
+            return {"ok": True}
+        if path == "/api/cancel-all":
+            JOBS.cancel_all(pause=bool(b.get("pause")))
+            return {"ok": True}
+        if path == "/api/clear":
+            JOBS.clear(b.get("which", "all"))
+            return {"ok": True}
+        if path == "/api/job-options":
+            JOBS.set_options(int(b["id"]), b.get("options", {}))
+            return {"ok": True}
+        if path == "/api/apply-all":
+            patch = {k: b[k] for k in ("track", "quality") if k in b}
+            SETTINGS["options"].update(patch)
+            save_settings()
+            JOBS.apply_all(patch)
+            return {"ok": True}
+        if path == "/api/open-url":
+            url = b.get("url", "")
+            if not url.lower().startswith(("http://", "https://")):
+                return {"error": "Not a web link."}
+            os.startfile(url)
+            return {"ok": True}
+        if path == "/api/secrets":
+            sec = SETTINGS.setdefault("secrets", {})
+            if "username" in b:
+                sec["username"] = (b.get("username") or "").strip()
+            for k in ("password", "video_password"):
+                if k in b:   # "" clears it; omitted keeps the saved one
+                    sec[k] = winutil.protect(b[k]) if b[k] else ""
+            save_settings()
+            return {"settings": public_settings()}
+        if path == "/api/pick-cookies":
+            chosen = winutil.pick_cookies_file(b.get("initial", ""))
+            return {"path": chosen}
         if path == "/api/remove":
             JOBS.remove(int(b["id"]))
             return {"ok": True}
         if path == "/api/clear-finished":
-            JOBS.clear_finished()
+            JOBS.clear("done")
             return {"ok": True}
         if path == "/api/format":
-            JOBS.set_format(int(b["id"]), b.get("format", ""))
+            JOBS.set_options(int(b["id"]), {"format_override": b.get("format", "")})
             return {"ok": True}
         if path == "/api/job":
             j = JOBS.get(int(b["id"]))
             if not j:
                 return {"error": "gone"}
-            return {"job": j.to_dict(), "log": list(j.log), "formats": j.formats,
+            return {"job": j.to_dict(), "log": list(j.log), "formats": j.formats, "meta": j.meta,
                     "command": core.preview_command(j.opts, [j.url], SETTINGS)}
-        if path == "/api/presets/save":
-            name = (b.get("name") or "").strip()[:40] or "My preset"
-            p = {"id": "user-" + secrets.token_hex(4), "label": name,
-                 "options": {k: v for k, v in b.get("options", {}).items() if k != "format_override"}}
-            SETTINGS["user_presets"].append(p)
-            save_settings()
-            return {"user_presets": SETTINGS["user_presets"]}
-        if path == "/api/presets/delete":
-            SETTINGS["user_presets"] = [p for p in SETTINGS["user_presets"] if p["id"] != b.get("id")]
-            save_settings()
-            return {"user_presets": SETTINGS["user_presets"]}
         if path == "/api/pick-folder":
             chosen = winutil.pick_folder(b.get("initial") or SETTINGS["options"].get("folder", ""))
             if chosen:
@@ -369,7 +422,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/open-folder":
             target = b.get("path") or SETTINGS["options"].get("folder")
             if not target:
-                return {"error": "No folder chosen yet."}
+                return {"error": "No download folder chosen yet."}
             winutil.open_folder(target)
             return {"ok": True}
         if path == "/api/reveal":
@@ -388,6 +441,17 @@ class Handler(BaseHTTPRequestHandler):
             return {"ok": True}
         if path == "/api/tools":
             return tool_status(refresh=True)
+        if path == "/api/login/state":
+            return LOGIN.state()
+        if path == "/api/login/open":
+            LOGIN.open_window(b.get("url", ""))
+            return LOGIN.state()
+        if path == "/api/login/save":
+            threading.Thread(target=LOGIN.save, daemon=True).start()
+            return {"ok": True}
+        if path == "/api/login/clear":
+            LOGIN.clear()
+            return LOGIN.state()
         return None
 
     def _events(self):
@@ -443,7 +507,10 @@ def open_window(url: str):
     ]
     edge = next((p for p in edge_paths if os.path.isfile(p)), None) or shutil.which("msedge")
     if edge:
-        subprocess.Popen([edge, f"--app={url}", "--window-size=1360,900"])
+        # Its own profile keeps Studio out of your normal Edge history and makes uninstalling clean.
+        profile = core.DATA_DIR / "window-profile"
+        subprocess.Popen([edge, f"--app={url}", "--window-size=1360,900", f"--user-data-dir={profile}",
+                          "--no-first-run", "--no-default-browser-check"])
     else:
         webbrowser.open(url)
 

@@ -10,3 +10,7 @@ __pycache__/
 .yt-dlp-studio-tmp/
 *.part
 *.ytdl
+
+# Build output (releases are built by GitHub Actions)
+dist/
+installer/build/

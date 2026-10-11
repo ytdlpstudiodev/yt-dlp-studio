@@ -1,4 +1,4 @@
-"""yt-dlp knowledge: where the binary lives, presets, and turning UI options into arguments."""
+"""yt-dlp knowledge: where the binary lives, quality choices, and turning UI options into arguments."""
 from __future__ import annotations
 
 import json
@@ -13,6 +13,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parent
 BIN_DIR = APP_DIR / "bin"
 DATA_DIR = APP_DIR / "data"
+COOKIE_FILE = DATA_DIR / "cookies.txt"   # written by login.py from the sign-in window
 YTDLP_DOWNLOAD_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -24,42 +25,11 @@ PROGRESS_TEMPLATE = (
     "%(progress.speed)s|%(progress.eta)s|%(info.title)s"
 )
 
-SUB_LANGS = "en.*,-live_chat"
-
-PRESETS = [
-    {"id": "video-mp4", "kind": "video", "icon": "film", "label": "Best video",
-     "sub": "MP4 · highest resolution",
-     "args": ["-S", "res,ext:mp4:m4a", "--merge-output-format", "mp4"]},
-    {"id": "video-1080", "kind": "video", "icon": "film", "label": "1080p",
-     "sub": "MP4 · up to 1080p",
-     "args": ["-S", "res:1080,ext:mp4:m4a", "--merge-output-format", "mp4"]},
-    {"id": "video-720", "kind": "video", "icon": "film", "label": "720p",
-     "sub": "MP4 · smaller files",
-     "args": ["-S", "res:720,ext:mp4:m4a", "--merge-output-format", "mp4"]},
-    {"id": "video-max", "kind": "video", "icon": "spark", "label": "Max quality",
-     "sub": "MKV · any codec (AV1/VP9)",
-     "args": ["-f", "bv*+ba/b", "--merge-output-format", "mkv"]},
-    {"id": "audio-mp3", "kind": "audio", "icon": "music", "label": "MP3",
-     "sub": "Best quality VBR",
-     "args": ["-f", "ba/b", "-x", "--audio-format", "mp3", "--audio-quality", "0"]},
-    {"id": "audio-m4a", "kind": "audio", "icon": "music", "label": "M4A",
-     "sub": "AAC · phone friendly",
-     "args": ["-f", "ba[ext=m4a]/ba/b", "-x", "--audio-format", "m4a"]},
-    {"id": "audio-best", "kind": "audio", "icon": "wave", "label": "Original audio",
-     "sub": "No re-encoding",
-     "args": ["-f", "ba/b", "-x"]},
-    {"id": "subs", "kind": "extra", "icon": "captions", "label": "Subtitles only",
-     "sub": "SRT · English",
-     "args": ["--skip-download", "--write-subs", "--write-auto-subs",
-              "--sub-langs", SUB_LANGS, "--convert-subs", "srt"]},
-    {"id": "thumb", "kind": "extra", "icon": "image", "label": "Thumbnail only",
-     "sub": "JPG",
-     "args": ["--skip-download", "--write-thumbnail", "--convert-thumbnails", "jpg"]},
-    {"id": "custom", "kind": "custom", "icon": "terminal", "label": "Custom",
-     "sub": "Only your extra arguments",
-     "args": []},
-]
-PRESET_MAP = {p["id"]: p for p in PRESETS}
+TRACKS = {"both": "Video + Audio", "audio": "Audio", "video": "Video"}
+GENERIC_HEIGHTS = [2160, 1440, 1080, 720, 480, 360]
+GENERIC_ABR = [320, 256, 192, 160, 128, 96]
+VIDEO_CONTAINERS = ["mp4", "mkv", "webm", "original"]
+AUDIO_FORMATS = ["mp3", "m4a", "opus", "flac", "wav", "original"]
 
 TEMPLATES = {
     "title": "%(title)s.%(ext)s",
@@ -68,7 +38,7 @@ TEMPLATES = {
     "date_title": "%(upload_date>%Y-%m-%d)s - %(title)s.%(ext)s",
 }
 
-# No default: people pick their own download folder the first time.
+# No default: people choose their own download folder (Locations) before the first download.
 DEFAULT_FOLDER = ""
 
 COOKIE_BROWSERS = ["edge", "chrome", "firefox", "brave", "opera", "vivaldi"]
@@ -78,7 +48,12 @@ URL_RE = re.compile(r"""(?:https?://|www\.)[^\s<>"'`]+""", re.IGNORECASE)
 
 def default_options() -> dict:
     return {
-        "preset": "video-mp4",
+        # what to download
+        "track": "both",
+        "quality": "best",
+        "video_container": "mp4",
+        "audio_format": "mp3",
+        # where & how it's named
         "folder": DEFAULT_FOLDER,
         "on_exists": "keep_both",
         "template": "title",
@@ -86,15 +61,26 @@ def default_options() -> dict:
         "playlist": "single",
         "playlist_items": "",
         "playlist_folder": True,
+        # extras
         "embed_thumbnail": True,
         "embed_metadata": True,
         "embed_chapters": True,
-        "embed_subs": False,
         "sponsorblock": False,
         "archive": False,
         "restrict_names": False,
+        # subtitles
+        "subtitles": False,
+        "sub_langs": ["en"],
+        "sub_all": False,
+        "sub_auto": True,
+        "sub_embed": True,
+        "sub_format": "srt",
+        # login: "" | "studio" | "file" | a browser name
         "cookies": "",
+        "cookies_file": "",
+        # network
         "rate_limit": "",
+        "proxy": "",
         "extra": "",
     }
 
@@ -174,20 +160,118 @@ def download_ytdlp(progress_cb=None) -> str:
     return str(dest)
 
 
+# ---------------------------------------------------------------- quality choices
+
+def _parse_quality(q: str) -> tuple[int | None, int | None, int | None]:
+    """'h1080f60' -> (1080, 60, None); 'h720' -> (720, None, None); 'a160' -> (None, None, 160)."""
+    m = re.fullmatch(r"h(\d+)(?:f(\d+))?", q or "")
+    if m:
+        return int(m.group(1)), int(m.group(2)) if m.group(2) else None, None
+    m = re.fullmatch(r"a(\d+)", q or "")
+    if m:
+        return None, None, int(m.group(1))
+    return None, None, None
+
+
+def quality_label(track: str, q: str) -> str:
+    h, fps, abr = _parse_quality(q)
+    if h:
+        return f"{h}p{fps}" if fps else f"{h}p"
+    if abr:
+        return f"{abr}kbps"
+    return "Best"
+
+
+def quality_options(formats: list[dict]) -> dict:
+    """Choices for the per-item quality dropdown, with an estimated download size for each."""
+    audio_only = [f for f in formats if f.get("vcodec") in (None, "none") and f.get("acodec") not in (None, "none")]
+    video = [f for f in formats if f.get("vcodec") not in (None, "none") and f.get("height")]
+    best_audio = max((f.get("size") or 0 for f in audio_only), default=0)
+
+    by_res: dict[tuple, int] = {}
+    for f in video:
+        fps = int(round(f["fps"])) if f.get("fps") else None
+        key = (f["height"], fps)
+        by_res[key] = max(by_res.get(key, 0), f.get("size") or 0)
+    res_keys = sorted(by_res, key=lambda k: (k[0], k[1] or 0), reverse=True)
+
+    def vopt(key, add_audio):
+        h, fps = key
+        size = by_res[key] + (best_audio if add_audio else 0)
+        return {"value": f"h{h}f{fps}" if fps else f"h{h}", "label": f"{h}p{fps}" if fps else f"{h}p",
+                "size": size or None}
+
+    by_abr: dict[int, int] = {}
+    for f in audio_only:
+        abr = f.get("abr") or f.get("tbr")
+        if abr:
+            by_abr[int(round(abr))] = max(by_abr.get(int(round(abr)), 0), f.get("size") or 0)
+
+    if res_keys:
+        top = by_res[res_keys[0]]
+        both = [{"value": "best", "label": "Best", "size": (top + best_audio) or None}] + [vopt(k, True) for k in res_keys]
+        vid = [{"value": "best", "label": "Best", "size": top or None}] + [vopt(k, False) for k in res_keys]
+    else:
+        both = [{"value": "best", "label": "Best", "size": None}] + \
+               [{"value": f"h{h}", "label": f"{h}p", "size": None} for h in GENERIC_HEIGHTS]
+        vid = [dict(o) for o in both]
+    if by_abr:
+        aud = [{"value": "best", "label": "Best", "size": best_audio or None}] + \
+              [{"value": f"a{a}", "label": f"{a}kbps", "size": by_abr[a] or None} for a in sorted(by_abr, reverse=True)]
+    else:
+        aud = [{"value": "best", "label": "Best", "size": None}] + \
+              [{"value": f"a{a}", "label": f"{a}kbps", "size": None} for a in GENERIC_ABR]
+    return {"both": both, "video": vid, "audio": aud}
+
+
+def format_args(opts: dict) -> tuple[list[str], str]:
+    """Track + quality (or exact streams picked in Preferences) -> yt-dlp format arguments."""
+    track = opts.get("track", "both")
+    h, fps, abr = _parse_quality(opts.get("quality", "best"))
+    exact = (opts.get("format_override") or "").strip()
+
+    if track == "audio":
+        f = exact or (f"ba[abr<={abr}]/ba/b" if abr else "ba/b")
+        a = ["-f", f, "-x"]
+        af = opts.get("audio_format", "mp3")
+        if af in AUDIO_FORMATS and af != "original":
+            a += ["--audio-format", af, "--audio-quality", "0"]
+        return a, "audio"
+
+    if exact:
+        f = exact
+    elif not h:
+        f = "bv*+ba/b" if track == "both" else "bv*/b"
+    else:
+        fps_f = f"[fps<={fps + 1}]" if fps else ""
+        if track == "both":
+            f = f"bv*[height={h}]{fps_f}+ba/bv*[height={h}]+ba/b[height={h}]/bv*[height<={h}]+ba/b[height<={h}]/b"
+        else:
+            f = (f"bv*[height={h}]{fps_f}/" if fps else "") + f"bv*[height={h}]/bv*[height<={h}]/b"
+    a = ["-f", f]
+    vc = opts.get("video_container", "mp4")
+    if vc == "mp4":
+        a += ["-S", "res,fps,ext:mp4:m4a"]
+    if vc in ("mp4", "mkv", "webm") and track == "both":
+        a += ["--merge-output-format", vc]
+    if vc in ("mp4", "mkv", "webm") and track == "video":
+        a += ["--remux-video", vc]
+    return a, "video"
+
+
+def describe(opts: dict) -> str:
+    """Short label for a queue item, e.g. 'Video + Audio · 1080p · MP4'."""
+    track = opts.get("track", "both")
+    parts = [TRACKS.get(track, track), quality_label(track, opts.get("quality", "best"))]
+    if opts.get("format_override"):
+        parts[1] = f"-f {opts['format_override']}"
+    fmt = opts.get("audio_format") if track == "audio" else opts.get("video_container")
+    if fmt and fmt != "original":
+        parts.append(fmt.upper())
+    return " · ".join(parts)
+
+
 # ---------------------------------------------------------------- arguments
-
-def _strip_flags(args: list[str], flags: set[str]) -> list[str]:
-    out, skip = [], False
-    for a in args:
-        if skip:
-            skip = False
-            continue
-        if a in flags:
-            skip = True
-            continue
-        out.append(a)
-    return out
-
 
 PLAYLIST_URL_RE = re.compile(r"[?&]list=|/playlist|/channel/|/@[^/]+/?(?:videos|streams|shorts)?/?$|/c/|/user/|/sets/|/album/", re.I)
 
@@ -218,11 +302,36 @@ def split_extra(extra: str) -> list[str]:
     return shlex.split(extra.replace("\\", "\\\\"))
 
 
-def network_args(opts: dict, settings: dict) -> list[str]:
-    """Arguments that affect what yt-dlp can see, shared by downloads and info lookups."""
+def cookie_source(opts: dict) -> str | None:
+    """The cookies.txt this item should use (Studio sign-ins or a file the user picked)."""
+    if opts.get("cookies") == "studio":
+        return str(COOKIE_FILE) if COOKIE_FILE.exists() else None
+    if opts.get("cookies") == "file":
+        p = (opts.get("cookies_file") or "").strip()
+        return p if p and os.path.isfile(p) else None
+    return None
+
+
+def network_args(opts: dict, settings: dict, cookie_file: str | None = None,
+                 secrets: dict | None = None) -> list[str]:
+    """Arguments that affect what yt-dlp can see, shared by downloads and info lookups.
+
+    cookie_file: a private copy of cookie_source(opts) for this run.
+    secrets: decrypted {"username", "password", "video_password"}; None in previews.
+    """
     a = ["--yes-playlist" if opts.get("playlist") == "all" else "--no-playlist"]
-    if opts.get("cookies") in COOKIE_BROWSERS:
+    if opts.get("cookies") in ("studio", "file") and cookie_file:
+        a += ["--cookies", cookie_file]
+    elif opts.get("cookies") in COOKIE_BROWSERS:
         a += ["--cookies-from-browser", opts["cookies"]]
+    sec = settings.get("secrets", {}) if secrets is None else secrets
+    masked = secrets is None
+    if sec.get("username") and (sec.get("password") or sec.get("has_password")):
+        a += ["--username", sec["username"], "--password", "********" if masked else sec.get("password", "")]
+    if sec.get("video_password") or sec.get("has_video_password"):
+        a += ["--video-password", "********" if masked else sec.get("video_password", "")]
+    if (opts.get("proxy") or "").strip():
+        a += ["--proxy", opts["proxy"].strip()]
     rt = detect_js_runtime(settings)
     if rt and rt != "deno":
         a += ["--js-runtimes", rt]
@@ -231,7 +340,8 @@ def network_args(opts: dict, settings: dict) -> list[str]:
 
 def build_args(opts: dict, urls: list[str], settings: dict, internal: bool = False,
                print_file: str | None = None, staging: str | None = None,
-               is_playlist: bool | None = None) -> list[str]:
+               is_playlist: bool | None = None, cookie_file: str | None = None,
+               secrets: dict | None = None) -> list[str]:
     """UI options -> yt-dlp argument list (without the executable).
 
     internal=True adds the machine-readable progress flags the app needs; the
@@ -239,41 +349,41 @@ def build_args(opts: dict, urls: list[str], settings: dict, internal: bool = Fal
     staging: download into this folder instead (the app moves files out afterwards
     so an existing file with the same name never blocks or gets overwritten).
     """
-    preset = PRESET_MAP.get(opts.get("preset")) or PRESETS[0]
-    pargs = list(preset["args"])
-    fmt = (opts.get("format_override") or "").strip()
-    if fmt:
-        pargs = _strip_flags(pargs, {"-f", "-S", "--format", "--format-sort"}) + ["-f", fmt]
-    skip_dl = "--skip-download" in pargs
-    kind = preset["kind"]
+    fargs, kind = format_args(opts)
 
     a: list[str] = []
     if internal:
         a += ["--newline", "--encoding", "utf-8", "--progress-template", PROGRESS_TEMPLATE]
         if print_file:
             a += ["--print-to-file", "after_move:%(filepath)s", print_file]
-    a += pargs
+    a += fargs
     if is_playlist is None:
         is_playlist = any(looks_like_playlist(u) for u in urls)
-    folder = staging or opts.get("folder") or DEFAULT_FOLDER
-    a += ["-P", folder or "<choose a folder>", "-o", output_template(opts, is_playlist)]
+    a += ["-P", staging or opts.get("folder") or DEFAULT_FOLDER or "<choose a folder>", "-o", output_template(opts, is_playlist)]
     if opts.get("on_exists") == "overwrite":
         a.append("--force-overwrites")
-    a += network_args(opts, settings)
+    a += network_args(opts, settings, cookie_file, secrets)
     if opts.get("playlist") == "all" and (opts.get("playlist_items") or "").strip():
         a += ["-I", opts["playlist_items"].strip()]
 
-    if not skip_dl and kind != "custom":
-        if opts.get("embed_metadata"):
-            a.append("--embed-metadata")
-        if opts.get("embed_thumbnail"):
-            a.append("--embed-thumbnail")
-        if kind == "video" and opts.get("embed_chapters"):
-            a.append("--embed-chapters")
-        if kind == "video" and opts.get("embed_subs"):
-            a += ["--embed-subs", "--sub-langs", SUB_LANGS]
-        if opts.get("sponsorblock"):
-            a += ["--sponsorblock-remove", "sponsor,selfpromo,interaction"]
+    if opts.get("embed_metadata"):
+        a.append("--embed-metadata")
+    if opts.get("embed_thumbnail"):
+        a.append("--embed-thumbnail")
+    if kind == "video" and opts.get("embed_chapters"):
+        a.append("--embed-chapters")
+    if opts.get("subtitles"):
+        # "en" should also catch regional/original variants like en-US, en-GB and en-orig.
+        langs = "all,-live_chat" if opts.get("sub_all") else             ",".join(f"{c},{c}-.*" for c in (opts.get("sub_langs") or ["en"]))
+        a += ["--write-subs", "--sub-langs", langs]
+        if opts.get("sub_auto"):
+            a.append("--write-auto-subs")
+        if opts.get("sub_format") in ("srt", "vtt", "ass"):
+            a += ["--convert-subs", opts["sub_format"]]
+        if kind == "video" and opts.get("sub_embed"):
+            a.append("--embed-subs")
+    if opts.get("sponsorblock"):
+        a += ["--sponsorblock-remove", "sponsor,selfpromo,interaction"]
     if opts.get("archive"):
         a += ["--download-archive", str(DATA_DIR / "archive.txt")]
     if opts.get("restrict_names"):
@@ -290,7 +400,7 @@ def build_args(opts: dict, urls: list[str], settings: dict, internal: bool = Fal
 
 def preview_command(opts: dict, urls: list[str], settings: dict) -> str:
     shown = urls[:1] if urls else ["<URL>"]
-    cmd = subprocess.list2cmdline(["yt-dlp"] + build_args(opts, shown, settings))
+    cmd = subprocess.list2cmdline(["yt-dlp"] + build_args(opts, shown, settings, cookie_file=cookie_source(opts)))
     if len(urls) > 1:
         cmd += f"  (+{len(urls) - 1} more)"
     return cmd
@@ -298,9 +408,10 @@ def preview_command(opts: dict, urls: list[str], settings: dict) -> str:
 
 # ---------------------------------------------------------------- info lookup
 
-def fetch_info(exe: str, url: str, opts: dict, settings: dict) -> dict:
+def fetch_info(exe: str, url: str, opts: dict, settings: dict, cookie_file: str | None = None,
+               secrets: dict | None = None) -> dict:
     args = [exe, "-J", "--flat-playlist", "--no-warnings", "--encoding", "utf-8"]
-    args += network_args(opts, settings) + ["--", url]
+    args += network_args(opts, settings, cookie_file, secrets or {}) + ["--", url]
     r = subprocess.run(args, capture_output=True, timeout=120, creationflags=NO_WINDOW,
                        env=child_env())
     if r.returncode != 0:
@@ -310,7 +421,11 @@ def fetch_info(exe: str, url: str, opts: dict, settings: dict) -> dict:
     d = json.loads(r.stdout.decode("utf-8", "replace"))
     info = {"title": d.get("title") or url, "uploader": d.get("uploader") or d.get("channel"),
             "duration": d.get("duration"), "thumbnail": d.get("thumbnail"),
-            "is_playlist": d.get("_type") == "playlist", "entries": None, "formats": []}
+            "is_playlist": d.get("_type") == "playlist", "entries": None, "formats": [],
+            "meta": {k: d.get(k) for k in ("webpage_url", "extractor_key", "upload_date", "view_count",
+                                          "like_count", "channel", "uploader", "description", "id")}}
+    if info["meta"].get("description"):
+        info["meta"]["description"] = info["meta"]["description"][:4000]
     if info["is_playlist"]:
         entries = d.get("entries") or []
         info["entries"] = d.get("playlist_count") or len(entries)
@@ -330,7 +445,7 @@ def fetch_info(exe: str, url: str, opts: dict, settings: dict) -> dict:
                 "height": f.get("height"), "fps": f.get("fps"),
                 "vcodec": f.get("vcodec"), "acodec": f.get("acodec"),
                 "size": f.get("filesize") or f.get("filesize_approx"),
-                "tbr": f.get("tbr"), "note": f.get("format_note") or "",
+                "tbr": f.get("tbr"), "abr": f.get("abr"), "note": f.get("format_note") or "",
                 "hdr": f.get("dynamic_range") not in (None, "SDR"),
             })
     return info

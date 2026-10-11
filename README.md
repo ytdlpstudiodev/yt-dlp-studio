@@ -1,129 +1,175 @@
-# yt-dlp Studio
+<p align="center"><img src="docs/icon.png" width="96" alt="yt-dlp Studio icon"></p>
+
+<h1 align="center">yt-dlp Studio</h1>
+
+<p align="center">A friendly Windows app for downloading video and audio with <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>.<br>
+Paste a link, pick a quality, press Download. No command line.</p>
+
+<p align="center"><a href="https://github.com/ytdlpstudiodev/yt-dlp-studio/releases/latest/download/yt-dlp-Studio-Setup.exe"><b>⬇ Download yt-dlp Studio for Windows</b></a>
+&nbsp;·&nbsp; <a href="https://github.com/ytdlpstudiodev/yt-dlp-studio/releases">All releases</a></p>
 
 > [!NOTE]
-> **This is an AI-generated app.** The code, UI and this README were written by an AI model
-> (Anthropic's Claude) through Claude Code, then tested by running it. Review it as you would any code from the
+> **This is an AI-generated app.** The code, interface, installer and this README were written by an AI model
+> (Anthropic's Claude) through Claude Code, then tested by running them. Review it as you would any software from the
 > internet before trusting it with your files.
 
-A friendly Windows desktop front end for [**yt-dlp**](https://github.com/yt-dlp/yt-dlp), the open-source
-command-line video downloader. Paste links, click a preset, and you're done. No command line, and no Python packages to install.
-
-yt-dlp Studio is **not affiliated with the yt-dlp project** or with any website it can download from. It is a separate
-graphical shell that runs the official `yt-dlp.exe` for you.
+![yt-dlp Studio](docs/screenshot.png)
 
 ---
 
-## Features
+## Download and install
 
-**Easy links**
-- Paste any text and every link in it is picked up automatically: one per line, mixed into a sentence, whatever.
-- Paste anywhere in the window, or drag links straight in from your browser.
-- **Watch clipboard** mode: copy a link anywhere in Windows and it appears in the list.
-- `Ctrl+Enter` starts downloading.
+1. **Download the installer:** click
+   [**yt-dlp-Studio-Setup.exe**](https://github.com/ytdlpstudiodev/yt-dlp-studio/releases/latest/download/yt-dlp-Studio-Setup.exe)
+   (or open the [Releases page](https://github.com/ytdlpstudiodev/yt-dlp-studio/releases), choose the newest release, and
+   under **Assets** click `yt-dlp-Studio-Setup.exe`).
+2. **Run it.** Windows will probably show a blue **"Windows protected your PC"** box, because the installer isn't
+   code-signed (signing certificates cost money). Click **More info → Run anyway**. You can check that your file is
+   genuine against `SHA256SUMS.txt` on the release page.
+3. **In Setup:** keep or change the install location, tick or untick **Create a desktop shortcut**, and click **Install**.
+   No administrator rights are needed; it installs just for your Windows account.
+4. **Install Python if Setup asks for it.** yt-dlp Studio runs on Python 3.10 or newer. Setup tells you whether it
+   found one. If not, get it from [python.org/downloads](https://www.python.org/downloads/windows/) (the default
+   options are fine), or run `winget install Python.Python.3.12`.
 
-**Presets instead of command-line flags**
+### Recommended extras
 
-| Video | Audio | Other |
+| Tool | Why | Install (in a terminal) |
 |---|---|---|
-| Best video (MP4) | MP3 (best VBR) | Subtitles only (SRT) |
-| 1080p (MP4) | M4A (AAC) | Thumbnail only (JPG) |
-| 720p (MP4) | Original audio (no re-encode) | Custom (your own arguments) |
-| Max quality (MKV, any codec) | | |
+| **ffmpeg** | Needed to merge HD video with its audio and to convert to MP3 and similar formats | `winget install Gyan.FFmpeg` |
+| **Deno** or **Node.js** | YouTube needs a JavaScript runtime to unlock every quality | `winget install DenoLand.Deno` |
 
-Save any combination of preset, folder and options as **your own one-click preset**.
-
-**File names that never collide**
-- Choose a naming style: *Title*, *Title [ID]*, *Channel - Title*, *Upload date - Title*, or your own yt-dlp template.
-- **If the file name already exists**:
-  - **Keep both** (default): saves `Title (2).mp4`, `Title (3).mp4`, and so on. Existing files are never touched, and subtitles or
-    thumbnails get the same number as their video.
-  - **Skip**: doesn't download it again.
-  - **Overwrite**: replaces the old file.
-
-**Queue**
-- Thumbnails, titles, duration, progress bar, speed and time remaining.
-- Several downloads at once (1 to 5, configurable).
-- Stop, retry (resumes partial downloads), open the file, or show it in Explorer.
-- **Pick formats**: choose exact video and audio streams for any item.
-- Playlists: download only the linked video or the whole playlist, optionally a range (`1-10`), into its own folder.
-
-**Transparent**
-- A live **command preview** shows the exact `yt-dlp` command your choices produce, with a copy button. It's a good way
-  to learn yt-dlp.
-- A per-item **log** shows yt-dlp's full output.
-
-**Self-maintaining**
-- Downloads the official `yt-dlp.exe` from yt-dlp's GitHub releases on first run (you click to confirm), and updates it
-  with one click.
-
-**Extras (optional)**: embed thumbnail, metadata and chapters, embed subtitles, remove sponsor segments
-(SponsorBlock), skip videos you've already downloaded, ASCII-only file names, speed limit, browser cookies for
-content you have access to, and any extra yt-dlp arguments.
+yt-dlp itself is included and can be updated from inside the app (**Settings › System › Update**).
 
 ---
 
-## Requirements
+## Using it
 
-- **Windows 10 or 11**
-- **Python 3.10 or newer** ([python.org](https://www.python.org/downloads/)). Only the standard library is used.
-- **ffmpeg** (strongly recommended): needed to merge HD video with audio and to convert audio.
-  Install with: `winget install Gyan.FFmpeg`
-- **Deno or Node.js** (recommended for YouTube): recent yt-dlp versions need a JavaScript runtime to get every
-  format from YouTube. Studio detects either one automatically.
-  Install with `winget install DenoLand.Deno` or `winget install OpenJS.NodeJS.LTS`
-- Microsoft Edge (built into Windows) is used to show the app in its own window. Any browser works as a fallback.
+1. **Choose where downloads go:** click the **folder icon** in the bottom bar (Locations) and press **Browse**.
+   You only do this once. There is no default folder; Studio asks before the first download.
+2. **Add links:** paste a link in the top bar and press **Add**. You can also:
+   - paste anywhere in the window, or drag links in from your browser;
+   - use **▾ › Watch clipboard**, so every link you copy anywhere goes straight into the queue;
+   - use **▾ › Import links** to load a `.txt` file with many links.
+3. **Pick what you want** on each card: **Video + Audio**, **Audio** or **Video**, and a quality (Best, 1080p60, 720p,
+   160kbps…). Duration and estimated size are shown. The selector in the bottom bar changes every item at once.
+4. **Press Download** in the bottom bar for everything, or the download icon on one card.
 
-## Getting started
+When it's done, use **Show folder** or **Open file** on the card.
 
-1. Download this repository (green **Code** button → **Download ZIP**) and unzip it anywhere.
-2. Double-click **`yt-dlp Studio.bat`**.
-3. The first time, click **Download yt-dlp** in the banner (or point Studio at a `yt-dlp.exe` you already have).
-4. Click **Browse…** next to *Save to* and **choose the folder where downloads should go**. There is no default
-   folder, so you have to pick one before the first download.
-5. Paste a link, pick a preset, and press **Download**.
+**The icons on each card:** Remove · Open the original page · Download / Pause / Resume / Retry ·
+Preferences (pick exact video and audio streams) · Info (details and the full yt-dlp log).
 
-Closing the window stops the app about 40 seconds later, but only once nothing is downloading.
+**The bottom bar:** overall progress · **Locations** · **Log in** · **Subtitles** · quality for all items ·
+🗑 clear menu (clear finished / failed / pending, pause or cancel all) · **Download**.
 
-You can also run it from a terminal: `python app.py` (add `--port 50000` to use another port).
+### Logging in to sites
+
+Some videos need an account: members-only, private, age-restricted or paid content. Click the **key icon** in the bottom bar:
+
+- **Sign in inside Studio (recommended):** pick a site (YouTube, Patreon, Vimeo, Twitch, Instagram, X, Facebook,
+  TikTok, Reddit, Nebula) or type any website. A private browser window opens. Log in as usual and close the window,
+  and Studio saves the login automatically and uses it for downloads. This window is separate from your normal browser.
+- **Other options:** a `cookies.txt` file, cookies from Firefox, or a username / password / video password for sites
+  that support it (passwords are encrypted with your Windows account).
+
+> [!TIP]
+> For YouTube, consider signing in with a secondary Google account. Google can flag accounts used with download tools.
+
+### Settings
+
+- **Locations:** download folder, file naming (Title, Title [ID], Channel - Title, Upload date - Title, or your own
+  template), and what happens **if the file name already exists**: **Keep both** (saves `Title (2).mp4`, the default),
+  **Skip** or **Overwrite**.
+- **Subtitles:** choose languages, include auto-generated ones, embed them into the video, SRT/VTT/ASS.
+- **Settings › Downloads:** downloads at once, video format (MP4/MKV/WebM), audio format (MP3/M4A/Opus/FLAC/WAV),
+  whole playlists or just the video, embed thumbnail/metadata/chapters, cut sponsor segments (SponsorBlock), never
+  download the same video twice, start automatically.
+- **Settings › Network:** speed limit, proxy (for example a SOCKS5 address from your VPN provider), extra yt-dlp arguments.
+- **Settings › App:** dark/light theme, notifications when downloads finish, clipboard watching.
 
 ---
 
-## How it works
+## Uninstall
 
-- `app.py` starts a small web server bound to `127.0.0.1` only (not reachable from other computers) and opens the
-  UI in an Edge "app" window. API calls require a random per-launch token, and requests with a foreign `Host` header
-  are rejected, so web pages you visit can't drive the app.
-- Each download runs `yt-dlp.exe` as a separate process. Progress comes from yt-dlp's `--progress-template`
-  output.
-- **Keep both** works by downloading into a hidden `.yt-dlp-studio-tmp` folder inside your chosen folder, then
-  moving the finished files out under a free name. If you stop a download, its partial file stays there so
-  **Retry** can resume it.
+Open **Settings › Apps › Installed apps**, find **yt-dlp Studio** and choose **Uninstall** (or run
+`Uninstall yt-dlp Studio.exe` in the install folder). It removes everything Studio created:
+
+- the app and its settings;
+- saved logins and its private browser profiles;
+- the shortcuts and its Windows registry entry;
+- unfinished temporary downloads.
+
+**Your downloaded videos and music are never deleted.**
+
+## Privacy
+
+Everything runs on your computer. Studio has no accounts, analytics, telemetry or crash reporting. It only talks to the
+sites you download from, to GitHub when you ask it to download or update yt-dlp, and to SponsorBlock if you turn that on.
+Logins are stored only on your PC, inside the install folder.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| "Windows protected your PC" | Click **More info → Run anyway** (the installer isn't code-signed). |
+| "yt-dlp Studio needs Python" | Install Python 3.10+ from python.org, then start Studio again. |
+| YouTube downloads fail or only low qualities appear | **Settings › System › Update** yt-dlp, and install Deno or Node.js. |
+| "Sign in to confirm…" / members-only errors | Log in with the key icon (see *Logging in to sites*). |
+| HD videos have no sound, or MP3 conversion fails | Install ffmpeg: `winget install Gyan.FFmpeg`. |
+| Need details on a failure | Click the **ⓘ** icon on the card, then **Logs**. |
+
+---
+
+## What's new in 2.0
+
+- **Installer and uninstaller.** A normal Windows Setup with Start menu entry, optional desktop shortcut and a clean
+  uninstaller. No admin rights needed.
+- **New interface**, inspired by Open Video Downloader: a link bar, a card per link with track and quality pickers,
+  sizes and durations, and a bottom bar with overall progress.
+- **Sign in to sites** inside the app for members-only, private, age-restricted and paid content, plus cookies.txt,
+  username/password and video passwords.
+- **Pause and resume** downloads, and pause, resume or cancel everything at once.
+- **Subtitles page** with language selection, auto-generated captions and embedding.
+- **More formats:** MP4/MKV/WebM video, and MP3/M4A/Opus/FLAC/WAV audio.
+- **Proxy support**, dark/light theme, Windows notifications, and an import-links-from-file option.
+- **Settings apply when you press Download**, so changing Locations or Settings affects items that haven't started yet.
+- Choosing an **exact stream** is now under each item's Preferences.
+
+## Run from source or build the installer yourself
+
+```
+python app.py                 # starts the app (Windows, Python 3.10+, standard library only)
+python installer\build.py     # builds dist\yt-dlp Studio Setup.exe
+```
+
+The installer is built with the C# compiler that ships with Windows (`csc.exe` from .NET Framework 4), so there is
+nothing extra to download. Release builds are made by [GitHub Actions](.github/workflows/release.yml) from this
+repository's code, and the latest official `yt-dlp.exe` is bundled at build time.
 
 | Path | Contents |
 |---|---|
-| `app.py` | Local server, settings, window launch |
-| `jobs.py` | Download queue, progress parsing, keep-both file placement |
-| `ytdlp_core.py` | Presets, option-to-argument mapping, yt-dlp detection |
-| `winutil.py` | Clipboard, native folder picker, Explorer helpers |
-| `web/` | The user interface (plain HTML/CSS/JS) |
-| `bin/` | Created on first run: the managed `yt-dlp.exe` (not in this repo) |
-| `data/` | Created on first run: your settings, presets and recent folders (not in this repo) |
+| `app.py` | Local web server (127.0.0.1 only, per-launch token) and app window |
+| `jobs.py` | Download queue, progress, pause/resume, keep-both file placement |
+| `ytdlp_core.py` | Quality choices and option → yt-dlp argument mapping |
+| `login.py` | In-app sign-in window and cookie export |
+| `winutil.py` | Clipboard, folder pickers, Windows DPAPI encryption |
+| `web/` | The interface (plain HTML/CSS/JS) |
+| `installer/` | Icon generator, launcher, setup and uninstaller sources, `build.py` |
 
 ---
 
 ## Responsible use
 
-yt-dlp Studio is a general-purpose tool. **You are responsible for how you use it.** Only download content that you
-own, that is in the public domain or under a license that allows it, or that you otherwise have permission to
-download, and follow the terms of service of the sites you use. Downloading copyrighted material without
-permission may be illegal where you live.
+yt-dlp Studio is a general-purpose tool. **You are responsible for how you use it.** Only download content you own,
+that is in the public domain or under a licence that allows it, or that you otherwise have permission to download,
+and follow the terms of service of the sites you use. Downloading copyrighted material without permission may be
+illegal where you live. This project does not circumvent DRM.
 
-This project does not circumvent DRM and does not include or distribute yt-dlp, ffmpeg or any media. It only
-runs the tools you install.
+yt-dlp Studio is **not affiliated** with the yt-dlp project, with Open Video Downloader, or with any site it can
+download from. The screenshot shows *Big Buck Bunny* and *Sintel* by the Blender Foundation (CC BY).
 
 ## License
 
-Released into the public domain under [The Unlicense](LICENSE), the same license yt-dlp uses. Do whatever you
-like with it.
-
-The software is provided "as is", without warranty of any kind. See the license for details.
+Released into the public domain under [The Unlicense](LICENSE), the same licence yt-dlp uses. Provided "as is",
+without warranty of any kind.
