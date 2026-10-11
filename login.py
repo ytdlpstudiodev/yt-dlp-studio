@@ -16,8 +16,10 @@ import struct
 import subprocess
 import threading
 import time
+import urllib.request
 from pathlib import Path
 
+import winutil
 import ytdlp_core as core
 
 PROFILE_DIR = core.DATA_DIR / "browser-profile"
@@ -192,6 +194,33 @@ class _WebSocket:
 
 def read_profile_cookies(browser: str, start_url: str = "about:blank", settle: float = 0) -> list[dict]:
     """Open the profile headless, read every cookie through DevTools, then shut it down."""
+    def work(ws, port):
+        if settle:
+            time.sleep(settle)
+        return ws.call("Storage.getCookies").get("cookies", [])
+    return _devtools_session(browser, work, start_url)
+
+
+def remove_site_cookies(browser: str, site: str) -> list[dict]:
+    """Delete one site's cookies inside the sign-in profile; returns the cookies that remain."""
+    def work(ws, port):
+        doomed = [c for c in ws.call("Storage.getCookies").get("cookies", []) if _base_domain(c.get("domain", "")) == site]
+        pages = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=10))
+        page = next((p for p in pages if p.get("type") == "page"), None)
+        if page is None:
+            raise RuntimeError("Couldn't open the sign-in profile to remove the login.")
+        pws = _WebSocket(port, "/devtools/page/" + page["id"])
+        try:
+            for c in doomed:
+                pws.call("Network.deleteCookies", {"name": c["name"], "domain": c["domain"], "path": c.get("path") or "/"})
+        finally:
+            pws.close()
+        return ws.call("Storage.getCookies").get("cookies", [])
+    return _devtools_session(browser, work)
+
+
+def _devtools_session(browser: str, work, start_url: str = "about:blank"):
+    """Run work(browser_ws, port) against the sign-in profile opened headless, then shut it down."""
     port_file = PROFILE_DIR / "DevToolsActivePort"
     port_file.unlink(missing_ok=True)
     proc = subprocess.Popen([browser, "--headless=new", f"--user-data-dir={PROFILE_DIR}",
@@ -211,18 +240,16 @@ def read_profile_cookies(browser: str, start_url: str = "about:blank", settle: f
             time.sleep(0.2)
         if len(lines) < 2:
             raise RuntimeError("Timed out waiting for the browser.")
-        if settle:
-            time.sleep(settle)
         ws = _WebSocket(int(lines[0]), lines[1])
         try:
-            cookies = ws.call("Storage.getCookies").get("cookies", [])
+            result = work(ws, int(lines[0]))
             try:
                 ws.call("Browser.close")
             except (ConnectionError, OSError):
                 pass
         finally:
             ws.close()
-        return cookies
+        return result
     finally:
         try:
             proc.wait(timeout=10)
@@ -332,11 +359,54 @@ class LoginManager:
         if not profile_in_use():
             _prepare_profile()
         subprocess.Popen([browser, f"--user-data-dir={PROFILE_DIR}", "--no-first-run",
-                          "--no-default-browser-check", "--new-window", url or "about:blank"],
+                          "--no-default-browser-check", "--new-window", "--window-size=1100,820",
+                          url or "about:blank"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         with self.lock:
             self.watching, self.seen_open, self.opened_at, self.error = True, False, time.time(), None
         self._changed()
+        threading.Thread(target=self._raise_window, daemon=True).start()
+
+    @staticmethod
+    def _raise_window():
+        """Windows keeps windows opened by background programs behind the active one; pull it forward."""
+        end = time.time() + 15
+        while time.time() < end:
+            time.sleep(0.5)
+            pids = set(_profile_pids())
+            wins = winutil.windows_of(pids) if pids else []
+            if wins:
+                time.sleep(0.4)            # let it finish drawing
+                for hwnd in winutil.windows_of(pids)[:1]:
+                    winutil.bring_to_front(hwnd)
+                return
+
+    def forget(self, site: str) -> None:
+        """Sign out of one site: remove its cookies from the profile and the saved file."""
+        with self.lock:
+            if self.busy:
+                return
+            self.busy, self.error, self.watching = True, None, False
+        self._changed()
+        try:
+            browser = find_browser()
+            if not browser:
+                raise RuntimeError("Removing a login needs Microsoft Edge or Google Chrome.")
+            if PROFILE_DIR.exists():
+                close_profile_browser()
+                remaining = remove_site_cookies(browser, site)
+            else:
+                remaining = []
+            if remaining or COOKIE_FILE.exists():
+                write_cookie_file(remaining)
+            if not remaining:
+                COOKIE_FILE.unlink(missing_ok=True)
+            self.last_count = None
+        except Exception as e:  # noqa: BLE001
+            self.error = str(e)
+        finally:
+            self.busy = False
+            self._changed()
 
     def save(self) -> None:
         """Close the sign-in window if needed and export cookies. Runs in a worker thread."""

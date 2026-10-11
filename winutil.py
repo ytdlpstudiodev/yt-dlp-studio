@@ -64,6 +64,57 @@ def unprotect(blob: str) -> str:
         return ""
 
 
+_EnumProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+_user32.EnumWindows.argtypes = [_EnumProc, wintypes.LPARAM]
+_user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+_user32.IsWindowVisible.argtypes = [wintypes.HWND]
+_user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+_user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+_user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+_user32.BringWindowToTop.argtypes = [wintypes.HWND]
+_user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+_user32.GetForegroundWindow.restype = wintypes.HWND
+
+
+def windows_of(pids: set[int]) -> list[int]:
+    """Visible, titled top-level windows owned by any of these process IDs."""
+    found = []
+
+    def cb(hwnd, _):
+        pid = wintypes.DWORD()
+        _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value in pids and _user32.IsWindowVisible(hwnd) and _user32.GetWindowTextLengthW(hwnd) > 0:
+            found.append(hwnd)
+        return True
+
+    _user32.EnumWindows(_EnumProc(cb), 0)
+    return found
+
+
+def foreground_pid() -> int:
+    pid = wintypes.DWORD()
+    _user32.GetWindowThreadProcessId(_user32.GetForegroundWindow(), ctypes.byref(pid))
+    return pid.value
+
+
+def bring_to_front(hwnd: int) -> bool:
+    """Raise a window opened by this background process above everything else.
+
+    Windows normally refuses SetForegroundWindow from a process the user isn't
+    interacting with; a synthetic Alt key press lifts that lock for one call.
+    """
+    SW_RESTORE, HWND_TOPMOST, HWND_NOTOPMOST = 9, -1, -2
+    flags = 0x0001 | 0x0002 | 0x0040   # no size, no move, show
+    _user32.ShowWindow(hwnd, SW_RESTORE)
+    _user32.keybd_event(0x12, 0, 0, 0)            # Alt down
+    _user32.keybd_event(0x12, 0, 0x0002, 0)       # Alt up
+    ok = bool(_user32.SetForegroundWindow(hwnd))
+    _user32.BringWindowToTop(hwnd)
+    _user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags)
+    _user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, flags)
+    return ok
+
+
 def clipboard_sequence() -> int:
     return _user32.GetClipboardSequenceNumber()
 

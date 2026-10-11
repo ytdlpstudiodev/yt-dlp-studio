@@ -35,6 +35,7 @@ const ICONS = {
   list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
   copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h9"/>',
   refresh: '<path d="M20 12a8 8 0 1 1-2.4-5.7L20 8.7M20 4v4.7h-4.7"/>',
+  star: '<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ""}</svg>`;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -653,8 +654,10 @@ function pageAuth() {
     <div class="fieldset"><div class="legend">Sign in inside Studio <span class="badge-pill">Recommended</span></div>
       <span class="label">Log in to a site in Studio's own private browser window, then close it. Studio keeps the login for downloads that need an account: members-only, private, age-restricted or paid videos.</span>
       ${L.browser ? "" : `<div class="status-line err">${icon("warn")}Signing in needs Microsoft Edge or Google Chrome.</div>`}
-      <div class="site-grid" id="siteGrid">${(L.quick_sites || []).map(([n, u]) => `<button class="btn soft" type="button" data-site="${esc(u)}">${esc(n)}</button>`).join("")}</div>
-      <div class="row" style="flex-wrap:nowrap;max-width:640px"><input class="input grow" id="otherSite" placeholder="Any other site, e.g. patreon.com" spellcheck="false">
+      <div class="site-grid" id="siteGrid">${(L.quick_sites || []).map(([n, u]) => `<button class="btn soft" type="button" data-site="${esc(u)}">${esc(n)}</button>`).join("")}
+        ${(S.settings.custom_sites || []).map((s) => `<span class="site-custom"><button class="btn soft" type="button" data-site="${esc(s.url)}" title="${esc(s.url)}">${icon("star")}${esc(s.name)}</button><button class="site-x" type="button" data-unsite="${esc(s.url)}" title="Remove this button" aria-label="Remove ${esc(s.name)}">${icon("x")}</button></span>`).join("")}</div>
+      <div class="row" style="flex-wrap:nowrap;max-width:640px"><input class="input grow" id="otherSite" placeholder="Any other site, e.g. patreon.com/login" spellcheck="false">
+        <button class="btn soft" type="button" id="saveSite" title="Add a button for this site to the list above" data-icon="star">Save to list</button>
         <button class="btn primary" type="button" id="openSite">Open sign-in window</button></div>
       <div id="loginStatus"></div>
       <div id="loginSites"></div>
@@ -693,11 +696,19 @@ function renderLoginBits() {
   $("#saveNow")?.addEventListener("click", () => run(api("/api/login/save")));
   const list = L.sites || [];
   sites.innerHTML = list.length ? `<div class="label" style="margin-bottom:6px">Saved logins (${list.length} sites)</div>
-    <div class="chips">${list.slice(0, 40).map((s) => `<span class="chip">${esc(s.site)}</span>`).join("")}</div>
+    <div class="chips">${list.slice(0, 60).map((s) => `<span class="chip chip-x">${esc(s.site)}<button type="button" data-forget="${esc(s.site)}" title="Sign out of ${esc(s.site)}" aria-label="Remove saved login for ${esc(s.site)}">${icon("x")}</button></span>`).join("")}</div>
+    <span class="hint">Click × on a site to delete just that login.</span>
     <div style="margin-top:10px"><button class="btn soft sm danger" type="button" id="signOutAll">Sign out of everything</button></div>` : "";
   $("#signOutAll")?.addEventListener("click", () => { if (confirm("Delete all saved logins and the sign-in browser profile?")) run(api("/api/login/clear")); });
+  sites.onclick = (e) => {
+    const b = e.target.closest("[data-forget]");
+    if (!b) return;
+    if (confirm(`Delete the saved login for ${b.dataset.forget}?\n\nYou'll be signed out of it in Studio's sign-in window too.`)) run(api("/api/login/forget", { site: b.dataset.forget }));
+  };
 }
+let forgetting = false;
 function onLoginState() {
+  if (S.login && S.login.busy && page.kind === "auth") forgetting = forgetting || !!$("#loginSites [data-forget]");
   if (page.kind === "auth") renderLoginBits();
   const L = S.login;
   if (L && !L.busy && !L.error && L.last_count && L.saved_at && O().cookies === "") {
@@ -708,6 +719,8 @@ function onLoginState() {
       renderFooter(); if (page.kind === "auth") renderPage(true);
       toast("Logins saved. Downloads will now use them.", "ok");
     }));
+  } else if (L && !L.busy && !L.error && L.last_count == null && page.kind === "auth" && forgetting) {
+    forgetting = false; toast("Login removed.", "ok", 2000);
   } else if (L && L.saved_at && !L.busy && !L.waiting && !L.error && L.last_count != null) {
     toast(`Saved logins for ${L.sites.length} site${L.sites.length === 1 ? "" : "s"}.`, "ok", 2500);
   }
@@ -723,7 +736,24 @@ PAGE_INIT.auth = () => {
   paint();
   $("#page").addEventListener("bound", paint);
   const open = (url) => run(api("/api/login/open", { url }).then((st) => { S.login = st; renderLoginBits(); }));
-  $("#siteGrid").onclick = (e) => { const b = e.target.closest("[data-site]"); if (b) open(b.dataset.site); };
+  $("#siteGrid").onclick = async (e) => {
+    const x = e.target.closest("[data-unsite]");
+    if (x) {
+      const r = await api("/api/login/sites", { action: "remove", url: x.dataset.unsite });
+      S.settings.custom_sites = r.custom_sites; return renderPage(true);
+    }
+    const b = e.target.closest("[data-site]"); if (b) open(b.dataset.site);
+  };
+  $("#saveSite").onclick = async () => {
+    const url = $("#otherSite").value.trim();
+    if (!url) return toast("Type the site's address (ideally its login page) first", "error");
+    let guess = url.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+    const name = prompt("Name for this button:", guess);
+    if (name === null) return;
+    const r = await api("/api/login/sites", { action: "add", url, name });
+    if (r.error) return toast(r.error, "error");
+    S.settings.custom_sites = r.custom_sites; renderPage(true); toast(`Added “${name || guess}”`, "ok", 1800);
+  };
   $("#openSite").onclick = () => { const v = $("#otherSite").value.trim(); if (!v) return toast("Type a website first", "error"); open(v); };
   $("#otherSite").onkeydown = (e) => { if (e.key === "Enter") $("#openSite").click(); };
   $("#pickCookies").onclick = async () => {

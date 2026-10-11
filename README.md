@@ -70,6 +70,10 @@ Some videos need an account: members-only, private, age-restricted or paid conte
 - **Sign in inside Studio (recommended):** pick a site (YouTube, Patreon, Vimeo, Twitch, Instagram, X, Facebook,
   TikTok, Reddit, Nebula) or type any website. A private browser window opens. Log in as usual and close the window,
   and Studio saves the login automatically and uses it for downloads. This window is separate from your normal browser.
+- **Your own site buttons:** type a site's login page and click **Save to list** to add a ★ button for it. Hover a
+  button and click × to remove it.
+- **Delete one login:** under *Saved logins*, click × next to a site to sign out of just that site. **Sign out of
+  everything** removes them all.
 - **Other options:** a `cookies.txt` file, cookies from Firefox, or a username / password / video password for sites
   that support it (passwords are encrypted with your Windows account).
 
@@ -120,6 +124,13 @@ Logins are stored only on your PC, inside the install folder.
 | Need details on a failure | Click the **ⓘ** icon on the card, then **Logs**. |
 
 ---
+
+## What's new in 2.1
+
+- **The sign-in window now comes to the front.** Before, Windows could hide it behind other windows, so it looked
+  like nothing happened.
+- **Delete a single saved login** with the × next to it, instead of only "Sign out of everything".
+- **Add your own site buttons** to the sign-in list with **Save to list**.
 
 ## What's new in 2.0
 

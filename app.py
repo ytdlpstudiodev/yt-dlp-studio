@@ -62,6 +62,7 @@ DEFAULT_SETTINGS = {
     "theme": "system",
     "notifications": True,
     "secrets": {},
+    "custom_sites": [],          # your own sign-in buttons: [{"name": ..., "url": ...}]
     "recent_folders": [],
     "ui_version": 2,
 }
@@ -449,6 +450,26 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/login/save":
             threading.Thread(target=LOGIN.save, daemon=True).start()
             return {"ok": True}
+        if path == "/api/login/forget":
+            site = (b.get("site") or "").strip().lower()
+            if not site:
+                return {"error": "Which site?"}
+            threading.Thread(target=LOGIN.forget, args=(site,), daemon=True).start()
+            return {"ok": True}
+        if path == "/api/login/sites":
+            sites = SETTINGS.setdefault("custom_sites", [])
+            url = (b.get("url") or "").strip()
+            if url and "://" not in url:
+                url = "https://" + url
+            if b.get("action") == "add":
+                if not url.lower().startswith(("http://", "https://")):
+                    return {"error": "That doesn't look like a website address."}
+                name = (b.get("name") or "").strip()[:40] or urlparse(url).hostname or url
+                sites[:] = [s for s in sites if s["url"] != url] + [{"name": name, "url": url}]
+            elif b.get("action") == "remove":
+                sites[:] = [s for s in sites if s["url"] != url]
+            save_settings()
+            return {"custom_sites": sites}
         if path == "/api/login/clear":
             LOGIN.clear()
             return LOGIN.state()

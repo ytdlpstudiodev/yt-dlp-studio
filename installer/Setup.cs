@@ -12,7 +12,7 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("yt-dlp Studio Setup")]
 [assembly: AssemblyProduct("yt-dlp Studio")]
 [assembly: AssemblyDescription("Installs yt-dlp Studio (AI-generated app)")]
-[assembly: AssemblyVersion("2.0.0.0")]
+[assembly: AssemblyVersion("2.1.0.0")]
 
 class SetupForm : Form
 {

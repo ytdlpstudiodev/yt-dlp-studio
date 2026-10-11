@@ -10,6 +10,14 @@
 
 `SHA256SUMS.txt` lets you check that the installer is genuine.
 
+## What's new in 2.1
+
+- The sign-in window now opens **in front** of other windows (Windows could hide it before)
+- **Delete one saved login** with the × next to it under *Saved logins*
+- **Add your own site buttons** to the sign-in list (type a login page, click **Save to list**)
+
+Updating from 2.0: just run the new installer. Your settings and logins are kept.
+
 ## What's new in 2.0
 
 - Windows **installer and uninstaller** (Start menu, optional desktop shortcut, removes every trace except your downloads)
