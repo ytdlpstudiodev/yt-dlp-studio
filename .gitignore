@@ -1,0 +1,12 @@
+# Created at runtime; personal to each user
+bin/
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# Leftovers from interrupted downloads
+.yt-dlp-studio-tmp/
+*.part
+*.ytdl
