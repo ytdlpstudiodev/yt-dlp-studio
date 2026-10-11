@@ -15,7 +15,7 @@ using Microsoft.Win32;
 
 [assembly: AssemblyTitle("Uninstall yt-dlp Studio")]
 [assembly: AssemblyProduct("yt-dlp Studio")]
-[assembly: AssemblyVersion("2.1.0.0")]
+[assembly: AssemblyVersion("2.1.1.0")]
 
 static class Uninstaller
 {

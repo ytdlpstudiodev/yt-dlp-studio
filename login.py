@@ -26,6 +26,18 @@ PROFILE_DIR = core.DATA_DIR / "browser-profile"
 COOKIE_FILE = core.COOKIE_FILE
 TMP_DIR = core.DATA_DIR / "tmp"
 
+# Edge signs new profiles in to the Windows Microsoft account and turns on sync, which would send
+# Studio's browsing to your main Edge (and copy your synced data into Studio's folder). These
+# switches stop that for browsers Studio launches only; your normal Edge is not affected.
+NO_SIGNIN_FEATURES = [
+    "msImplicitSignin", "msM365LinksImplicitSignin", "msOneAuthWAM", "msForceOneAuthWAM",
+    "msBrowserLaunchSignedInMSATrigger", "msEnableProfileAADAccountSSO", "msProfileSignIn",
+    "msSeamlessWebToBrowserSignIn", "msQuickAuthToBrowserSignIn", "msEnableWebToBrowserSignIn",
+    "msEnableAADWebToBrowserSignIn", "msSignInWithMSAAccount", "msCombinedSyncSignIn",
+    "msAutoToggleMSAPrtSSOForNonMSAProfile", "msAllowMSAPrtSSOForNonMSAProfile",
+]
+NO_SIGNIN_FLAGS = ["--disable-sync", "--disable-features=" + ",".join(NO_SIGNIN_FEATURES)]
+
 QUICK_SITES = [
     ("YouTube", "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F"),
     ("Vimeo", "https://vimeo.com/log_in"),
@@ -94,6 +106,49 @@ def close_profile_browser(timeout: float = 10) -> None:
     for pid in pids:
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, creationflags=core.NO_WINDOW)
     time.sleep(1)
+
+
+def profile_signed_in(profile: Path = None) -> bool:
+    """True if the browser has signed this profile in to an account (and may be syncing it)."""
+    ls = (profile or PROFILE_DIR) / "Local State"
+    if not ls.exists():
+        return False
+    try:
+        info = json.loads(ls.read_text("utf-8", "replace")).get("profile", {}).get("info_cache", {}).get("Default", {})
+    except (OSError, ValueError):
+        return False
+    return bool(info.get("user_name") or info.get("edge_account_type") or info.get("gaia_id"))
+
+
+_COOKIE_PARAM_KEYS = ("name", "value", "domain", "path", "secure", "httpOnly", "sameSite", "priority",
+                      "sourceScheme", "sourcePort", "partitionKey")
+
+
+def rebuild_profile(browser: str) -> int:
+    """Replace a signed-in profile with a clean one, carrying the site logins (cookies) across."""
+    close_profile_browser()
+    cookies = read_profile_cookies(browser) if PROFILE_DIR.exists() else []
+    shutil.rmtree(PROFILE_DIR, ignore_errors=True)
+    if PROFILE_DIR.exists():
+        raise RuntimeError("Couldn't reset the sign-in browser profile (files in use).")
+    _prepare_profile()
+    params = []
+    for c in cookies:
+        p = {k: c[k] for k in _COOKIE_PARAM_KEYS if k in c and c[k] not in (None, "")}
+        if not c.get("session") and (c.get("expires") or -1) > 0:
+            p["expires"] = c["expires"]
+        params.append(p)
+
+    def work(ws, port):
+        restored = 0
+        for p in params:
+            try:
+                ws.call("Storage.setCookies", {"cookies": [p]})
+                restored += 1
+            except RuntimeError:
+                pass   # e.g. an already-expired cookie
+        return restored
+    return _devtools_session(browser, work) if params else 0
 
 
 def _prepare_profile() -> None:
@@ -225,7 +280,7 @@ def _devtools_session(browser: str, work, start_url: str = "about:blank"):
     port_file.unlink(missing_ok=True)
     proc = subprocess.Popen([browser, "--headless=new", f"--user-data-dir={PROFILE_DIR}",
                              "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check",
-                             "--disable-extensions", start_url],
+                             "--disable-extensions", *NO_SIGNIN_FLAGS, start_url],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=core.NO_WINDOW)
     try:
         end = time.time() + 25
@@ -332,7 +387,9 @@ class LoginManager:
         self.busy = False
         self.error = None
         self.last_count = None
+        self.notice = None
         threading.Thread(target=self._watch, daemon=True).start()
+        threading.Thread(target=self.repair_if_signed_in, daemon=True).start()
 
     def state(self) -> dict:
         saved_at = COOKIE_FILE.stat().st_mtime if COOKIE_FILE.exists() else None
@@ -340,7 +397,7 @@ class LoginManager:
             "browser": find_browser(), "window_open": self.watching and profile_in_use(),
             "waiting": self.watching, "busy": self.busy, "error": self.error,
             "saved_at": saved_at, "sites": saved_sites(), "quick_sites": QUICK_SITES,
-            "last_count": self.last_count,
+            "last_count": self.last_count, "notice": self.notice,
         }
 
     def _changed(self):
@@ -357,10 +414,11 @@ class LoginManager:
         if url and "://" not in url:
             url = "https://" + url
         if not profile_in_use():
+            self.repair_if_signed_in()
             _prepare_profile()
         subprocess.Popen([browser, f"--user-data-dir={PROFILE_DIR}", "--no-first-run",
                           "--no-default-browser-check", "--new-window", "--window-size=1100,820",
-                          url or "about:blank"],
+                          *NO_SIGNIN_FLAGS, url or "about:blank"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         with self.lock:
             self.watching, self.seen_open, self.opened_at, self.error = True, False, time.time(), None
@@ -380,6 +438,29 @@ class LoginManager:
                 for hwnd in winutil.windows_of(pids)[:1]:
                     winutil.bring_to_front(hwnd)
                 return
+
+    def repair_if_signed_in(self) -> bool:
+        """Undo Edge's automatic Microsoft-account sign-in on Studio's profile, keeping site logins."""
+        if not PROFILE_DIR.exists() or not profile_signed_in() or profile_in_use():
+            return False
+        browser = find_browser()
+        if not browser:
+            return False
+        with self.lock:
+            self.busy = True
+        self._changed()
+        try:
+            n = rebuild_profile(browser)
+            self.notice = (f"Studio's sign-in browser had been signed in to your Microsoft account by Edge. "
+                           f"It has been reset to a private, signed-out profile; {n} saved site cookies were kept.")
+            print(self.notice)
+            return True
+        except Exception as e:  # noqa: BLE001
+            self.error = f"Couldn't reset the sign-in profile: {e}"
+            return False
+        finally:
+            self.busy = False
+            self._changed()
 
     def forget(self, site: str) -> None:
         """Sign out of one site: remove its cookies from the profile and the saved file."""

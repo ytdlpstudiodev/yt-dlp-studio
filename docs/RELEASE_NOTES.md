@@ -10,6 +10,13 @@
 
 `SHA256SUMS.txt` lets you check that the installer is genuine.
 
+## What's new in 2.1.1
+
+- **Fix:** Studio's browser windows no longer get signed in to your Microsoft account by Edge, so they don't sync and
+  their history stays out of your main Edge. Already-affected Studio profiles are reset automatically (saved site
+  logins are kept).
+- If you used an earlier version, consider deleting synced entries via `edge://history` in your normal Edge.
+
 ## What's new in 2.1
 
 - The sign-in window now opens **in front** of other windows (Windows could hide it before)

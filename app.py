@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 import ytdlp_core as core
 import winutil
 from jobs import JobManager
+import login
 from login import LoginManager
 
 def _port_from_args(default: int = 47815) -> int:
@@ -529,9 +530,12 @@ def open_window(url: str):
     edge = next((p for p in edge_paths if os.path.isfile(p)), None) or shutil.which("msedge")
     if edge:
         # Its own profile keeps Studio out of your normal Edge history and makes uninstalling clean.
+        # Sign-in/sync are switched off so Edge can't attach your Microsoft account to it.
         profile = core.DATA_DIR / "window-profile"
+        if login.profile_signed_in(profile):
+            shutil.rmtree(profile, ignore_errors=True)   # nothing of value in it; start clean
         subprocess.Popen([edge, f"--app={url}", "--window-size=1360,900", f"--user-data-dir={profile}",
-                          "--no-first-run", "--no-default-browser-check"])
+                          "--no-first-run", "--no-default-browser-check", *login.NO_SIGNIN_FLAGS])
     else:
         webbrowser.open(url)
 

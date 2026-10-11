@@ -8,7 +8,7 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("yt-dlp Studio")]
 [assembly: AssemblyProduct("yt-dlp Studio")]
 [assembly: AssemblyDescription("A friendly front end for yt-dlp (AI-generated)")]
-[assembly: AssemblyVersion("2.1.0.0")]
+[assembly: AssemblyVersion("2.1.1.0")]
 
 static class Launcher
 {

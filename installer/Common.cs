@@ -10,7 +10,7 @@ using Microsoft.Win32;
 static class Studio
 {
     public const string Name = "yt-dlp Studio";
-    public const string Version = "2.1.0";
+    public const string Version = "2.1.1";
     public const string LauncherExe = "yt-dlp Studio.exe";
     public const string UninstallExe = "Uninstall yt-dlp Studio.exe";
     public const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\yt-dlp-studio";

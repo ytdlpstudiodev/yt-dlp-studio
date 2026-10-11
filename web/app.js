@@ -691,6 +691,7 @@ function renderLoginBits() {
   else if (L.waiting) html = `<div class="status-line"><span class="spinner"></span>The sign-in window is open. Log in, then close that window and Studio saves it automatically.
     <span class="grow"></span><button class="btn sm primary" type="button" id="saveNow">I'm done, save now</button></div>`;
   else if (L.error) html = `<div class="status-line err">${icon("warn")}${esc(L.error)}</div>`;
+  else if (L.notice && !L.saved_at) html = `<div class="status-line">${icon("info")}${esc(L.notice)}</div>`;
   else if (L.saved_at) html = `<div class="status-line ok">${icon("check")}Logins saved ${new Date(L.saved_at * 1000).toLocaleString()}.</div>`;
   st.innerHTML = html;
   $("#saveNow")?.addEventListener("click", () => run(api("/api/login/save")));
@@ -707,10 +708,12 @@ function renderLoginBits() {
   };
 }
 let forgetting = false;
+let shownNotice = null;
 function onLoginState() {
   if (S.login && S.login.busy && page.kind === "auth") forgetting = forgetting || !!$("#loginSites [data-forget]");
   if (page.kind === "auth") renderLoginBits();
   const L = S.login;
+  if (L && L.notice && L.notice !== shownNotice) { shownNotice = L.notice; toast(L.notice, "info", 9000); }
   if (L && !L.busy && !L.error && L.last_count && L.saved_at && O().cookies === "") {
     // First successful sign-in: use it right away.
     run(api("/api/options", { options: { cookies: "studio" } }).then(() => {

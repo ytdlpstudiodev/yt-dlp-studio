@@ -69,7 +69,8 @@ Some videos need an account: members-only, private, age-restricted or paid conte
 
 - **Sign in inside Studio (recommended):** pick a site (YouTube, Patreon, Vimeo, Twitch, Instagram, X, Facebook,
   TikTok, Reddit, Nebula) or type any website. A private browser window opens. Log in as usual and close the window,
-  and Studio saves the login automatically and uses it for downloads. This window is separate from your normal browser.
+  and Studio saves the login automatically and uses it for downloads. This window is separate from your normal browser:
+  it is never signed in to your Microsoft account, doesn't sync, and its history stays out of your normal Edge.
 - **Your own site buttons:** type a site's login page and click **Save to list** to add a ★ button for it. Hover a
   button and click × to remove it.
 - **Delete one login:** under *Saved logins*, click × next to a site to sign out of just that site. **Sign out of
@@ -124,6 +125,16 @@ Logins are stored only on your PC, inside the install folder.
 | Need details on a failure | Click the **ⓘ** icon on the card, then **Logs**. |
 
 ---
+
+## What's new in 2.1.1
+
+- **Fix: Studio's browser windows no longer sign in to your Microsoft account.** Edge automatically signed new
+  profiles in to the Windows Microsoft account and turned on sync, so pages visited in Studio's sign-in window could
+  appear in your main Edge history. Studio now launches its windows with Edge's automatic sign-in and sync turned off
+  (your normal Edge is unaffected). If a Studio profile was already signed in, Studio resets it to a clean,
+  signed-out profile on start and keeps your saved site logins.
+- If you used 2.1.0 or earlier, you may want to remove synced entries from your main Edge: open `edge://history` and
+  delete them, and check **Settings › Profiles › Sync** in your normal Edge for an extra device.
 
 ## What's new in 2.1
 
